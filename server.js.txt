@@ -1,0 +1,78 @@
+// server.js
+const express = require('express');
+const axios = require('axios');
+const mysql = require('mysql2');
+const cors = require('cors');
+const app = express();
+const port = 3000;
+
+app.use(cors());
+app.use(express.json());
+
+// MySQL connection
+const db = mysql.createConnection({
+  host: 'localhost',
+  user: 'root',
+  password: '',
+  database: 'weather_db'
+});
+
+db.connect((err) => {
+  if (err) throw err;
+  console.log('Connected to MySQL database.');
+});
+
+// Create table if not exists
+const createTable = `
+  CREATE TABLE IF NOT EXISTS search_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    city VARCHAR(255),
+    temperature DECIMAL(5,2),
+    searched_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+`;
+db.query(createTable, (err) => {
+  if (err) throw err;
+  console.log('Ensured search_history table exists.');
+});
+
+// API endpoint to get weather and save to DB
+app.get('/weather', async (req, res) => {
+  const city = req.query.city;
+  const apiKey = 'your_api_key'; // Replace with OpenWeatherMap API key
+
+  try {
+    const response = await axios.get(
+      `https://api.openweathermap.org/data/2.5/weather?q=${city}&units=metric&appid=${apiKey}`
+    );
+
+    const temp = response.data.main.temp.toFixed(2);
+    const cityName = response.data.name;
+
+    // Save to DB
+    db.query('INSERT INTO search_history (city, temperature) VALUES (?, ?)', [cityName, temp], (err) => {
+      if (err) console.error('Failed to insert into DB:', err);
+    });
+
+    res.json({
+      city: cityName,
+      temperature: temp,
+      humidity: response.data.main.humidity,
+      wind: response.data.wind.speed
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch weather data.' });
+  }
+});
+
+// Optional: Fetch search history
+app.get('/history', (req, res) => {
+  db.query('SELECT * FROM search_history ORDER BY searched_at DESC', (err, results) => {
+    if (err) return res.status(500).json({ error: 'Failed to fetch history' });
+    res.json(results);
+  });
+});
+
+app.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
